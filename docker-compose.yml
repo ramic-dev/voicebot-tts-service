@@ -1,0 +1,35 @@
+services:
+  tts:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.11-bookworm
+        RUN apt-get update && apt-get install -y --no-install-recommends \
+            ffmpeg libsndfile1 curl gnupg && rm -rf /var/lib/apt/lists/*
+        RUN curl -s https://install.zerotier.com | bash
+        RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+        RUN pip install --no-cache-dir \
+            torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+        RUN pip install --no-cache-dir "coqui-tts==0.27.5" "transformers>=4.57,<5"
+        RUN python -c "import pathlib, site; \
+            p = pathlib.Path(site.getsitepackages()[0]) / 'TTS' / '__init__.py'; \
+            t = p.read_text(); \
+            t = t.replace('raise ImportError(TORCHCODEC_IMPORT_ERROR)', 'pass'); \
+            p.write_text(t)"
+        RUN pip install --no-cache-dir flask soundfile numpy
+        WORKDIR /app
+        COPY app.py default_speaker.pt entrypoint.sh ./
+        RUN chmod +x entrypoint.sh
+        ENV COQUI_TOS_AGREED=1 FFMPEG_BIN=ffmpeg SPEAKER_FILE=/app/default_speaker.pt
+        ENTRYPOINT ["/app/entrypoint.sh"]
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./cache/tts:/root/.local/share/tts
+      - ./cache/zerotier:/var/lib/zerotier-one
+      - ./:/host:ro
+    environment:
+      - ZT_NETWORK=af78bf94367e9ae4
+    restart: unless-stopped
